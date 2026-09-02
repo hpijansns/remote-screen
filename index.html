@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RemoteScreen - Host</title>
+  <!-- QR Code Generator Library -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --card-bg: #161b22;
+      --border: #30363d;
+      --accent: #238636;
+      --accent-hover: #2ea043;
+      --danger: #da3633;
+      --danger-hover: #f85149;
+      --text: #f0f6fc;
+      --muted: #8b949e;
+      --warning-bg: rgba(210, 153, 34, 0.15);
+      --warning-border: #d29922;
+    }
+    * { 
+      box-sizing: border-box; 
+      margin: 0; 
+      padding: 0; 
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+    }
+    body { 
+      background: var(--bg); 
+      color: var(--text); 
+      display: flex; 
+      justify-content: center; 
+      align-items: center; 
+      min-height: 100vh; 
+      padding: 16px; 
+    }
+    .card { 
+      background: var(--card-bg); 
+      border: 1px solid var(--border); 
+      border-radius: 12px; 
+      width: 100%; 
+      max-width: 440px; 
+      padding: 24px; 
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5); 
+    }
+    h1 { 
+      font-size: 1.5rem; 
+      font-weight: 700; 
+      margin-bottom: 8px; 
+      display: flex; 
+      align-items: center; 
+      gap: 8px; 
+    }
+    .status-badge { 
+      display: inline-flex; 
+      align-items: center; 
+      gap: 6px; 
+      font-size: 0.8rem; 
+      padding: 4px 10px; 
+      border-radius: 999px; 
+      background: #21262d; 
+      border: 1px solid var(--border); 
+    }
+    .dot { 
+      width: 8px; 
+      height: 8px; 
+      border-radius: 50%; 
+      background: var(--muted); 
+    }
+    .dot.active { 
+      background: #3fb950; 
+      box-shadow: 0 0 8px #3fb950; 
+    }
+    .warning-box { 
+      background: var(--warning-bg); 
+      border: 1px solid var(--warning-border); 
+      border-radius: 8px; 
+      padding: 12px; 
+      margin: 16px 0; 
+      font-size: 0.85rem; 
+      line-height: 1.4; 
+    }
+    .field { 
+      margin-bottom: 16px; 
+    }
+    label { 
+      display: block; 
+      font-size: 0.85rem; 
+      color: var(--muted); 
+      margin-bottom: 6px; 
+    }
+    input { 
+      width: 100%; 
+      padding: 10px 14px; 
+      background: #0d1117; 
+      border: 1px solid var(--border); 
+      border-radius: 6px; 
+      color: var(--text); 
+      font-size: 0.95rem; 
+    }
+    button { 
+      width: 100%; 
+      padding: 12px; 
+      border: none; 
+      border-radius: 6px; 
+      font-weight: 600; 
+      cursor: pointer; 
+      transition: 0.2s ease; 
+      margin-bottom: 10px; 
+      font-size: 0.95rem; 
+    }
+    .btn-primary { 
+      background: var(--accent); 
+      color: white; 
+    }
+    .btn-primary:hover { 
+      background: var(--accent-hover); 
+    }
+    .btn-danger { 
+      background: var(--danger); 
+      color: white; 
+      display: none; 
+    }
+    .btn-danger:hover { 
+      background: var(--danger-hover); 
+    }
+    .code-display { 
+      display: flex; 
+      flex-direction: column; 
+      align-items: center; 
+      margin: 16px 0; 
+      padding: 16px; 
+      background: #0d1117; 
+      border-radius: 8px; 
+      border: 1px dashed var(--border); 
+    }
+    .pair-code { 
+      font-size: 2rem; 
+      font-family: monospace; 
+      letter-spacing: 4px; 
+      font-weight: 700; 
+      color: #58a6ff; 
+      margin: 8px 0; 
+    }
+    #qrcode { 
+      padding: 8px; 
+      background: white; 
+      border-radius: 4px; 
+      margin-bottom: 8px; 
+    }
+    .meta-list { 
+      font-size: 0.85rem; 
+      color: var(--muted); 
+      margin-top: 16px; 
+    }
+    .meta-item { 
+      display: flex; 
+      justify-content: space-between; 
+      padding: 6px 0; 
+      border-bottom: 1px solid #21262d; 
+    }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+    <h1>RemoteScreen</h1>
+    <div class="status-badge">
+      <div class="dot" id="statusDot"></div>
+      <span id="statusLabel">STANDBY</span>
+    </div>
+  </div>
+
+  <div class="warning-box">
+    <strong>Explicit Consent Warning:</strong> Starting a session will share everything visible on your screen (messages, notifications, apps). Streaming stops immediately when you click stop.
+  </div>
+
+  <div class="field">
+    <label for="deviceName">Device Alias</label>
+    <input type="text" id="deviceName" value="Phone-A">
+  </div>
+
+  <button class="btn-primary" id="startBtn">Generate Session & Share</button>
+  <button class="btn-danger" id="stopBtn">Stop Sharing</button>
+
+  <div id="pairSection" style="display: none;" class="code-display">
+    <div id="qrcode"></div>
+    <div style="font-size: 0.8rem; color: var(--muted);">ADMIN PAIRING CODE</div>
+    <div class="pair-code" id="pairCode">------</div>
+    <div style="font-size: 0.75rem; color: var(--muted);">Valid for 10 minutes</div>
+  </div>
+
+  <div class="meta-list">
+    <div class="meta-item"><span>Session ID:</span><span id="metaSession" style="font-family: monospace;">N/A</span></div>
+    <div class="meta-item"><span>Viewer Connection:</span><span id="metaViewer">Disconnected</span></div>
+    <div class="meta-item"><span>Display Source:</span><span id="metaCap">Idle</span></div>
+  </div>
+</div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getDatabase, ref, set, update, onValue, onDisconnect, remove } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+  // Firebase Setup
+  const firebaseConfig = {
+    apiKey: "AIzaSyAQysDZkvCf5m7TZrqck7zxb1EiTpRhFuk",
+    authDomain: "remotescreen-4dc1a.firebaseapp.com",
+    projectId: "remotescreen-4dc1a",
+    storageBucket: "remotescreen-4dc1a.firebasestorage.app",
+    messagingSenderId: "673121898826",
+    appId: "1:673121898826:web:af3f82f486638b61af71b3",
+    databaseURL: "https://remotescreen-4dc1a-default-rtdb.firebaseio.com"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
+
+  const rtcConfig = {
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+  };
+
+  let pc = null;
+  let localStream = null;
+  let sessionId = null;
+  let sessionRef = null;
+
+  const startBtn = document.getElementById("startBtn");
+  const stopBtn = document.getElementById("stopBtn");
+  const statusDot = document.getElementById("statusDot");
+  const statusLabel = document.getElementById("statusLabel");
+  const pairSection = document.getElementById("pairSection");
+  const pairCodeEl = document.getElementById("pairCode");
+  const metaSession = document.getElementById("metaSession");
+  const metaViewer = document.getElementById("metaViewer");
+  const metaCap = document.getElementById("metaCap");
+
+  async function sha256(str) {
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  function generateCode(len = 6) {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    return Array.from(crypto.getRandomValues(new Uint8Array(len)))
+      .map(n => chars[n % chars.length]).join("");
+  }
+
+  startBtn.addEventListener("click", async () => {
+    if (!confirm("Are you sure you want to share your screen? Everything visible will be sent to the paired viewer.")) return;
+
+    try {
+      localStream = await navigator.mediaDevices.getDisplayMedia({ 
+        video: { cursor: "always" }, 
+        audio: false 
+      });
+      metaCap.innerText = "Active";
+      localStream.getVideoTracks()[0].onended = () => terminateSession();
+    } catch (err) {
+      alert("Screen capture was denied or is not supported in this browser window.");
+      return;
+    }
+
+    sessionId = crypto.randomUUID();
+    sessionRef = ref(db, `sessions/${sessionId}`);
+    const pairingCode = generateCode();
+    const pairingHash = await sha256(pairingCode);
+
+    metaSession.innerText = sessionId.substring(0, 8) + "...";
+    pairCodeEl.innerText = pairingCode;
+    pairSection.style.display = "flex";
+
+    document.getElementById("qrcode").innerHTML = "";
+    new QRCode(document.getElementById("qrcode"), {
+      text: JSON.stringify({ sid: sessionId, code: pairingCode }),
+      width: 128,
+      height: 128
+    });
+
+    // Write initial session metadata to Firebase
+    await set(sessionRef, {
+      deviceName: document.getElementById("deviceName").value || "Phone-A",
+      pairingCodeHash: pairingHash,
+      status: "waiting",
+      createdAt: Date.now(),
+      ownerConnected: true,
+      viewerConnected: false
+    });
+
+    // Auto-cleanup on disconnect
+    onDisconnect(sessionRef).remove();
+
+    initializePeerConnection();
+    listenToSignaling();
+
+    startBtn.style.display = "none";
+    stopBtn.style.display = "block";
+    statusDot.className = "dot active";
+    statusLabel.innerText = "WAITING VIEWER";
+  });
+
+  function initializePeerConnection() {
+    pc = new RTCPeerConnection(rtcConfig);
+
+    localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+    // Send owner ICE candidates to Firebase
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        const candRef = ref(db, `sessions/${sessionId}/ownerCandidates/${Date.now()}`);
+        set(candRef, event.candidate.toJSON());
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === "connected") {
+        statusLabel.innerText = "LIVE STREAMING";
+      } else if (pc.connectionState === "disconnected" || pc.connectionState === "failed") {
+        terminateSession();
+      }
+    };
+  }
+
+  function listenToSignaling() {
+    onValue(sessionRef, async (snapshot) => {
+      const data = snapshot.val();
+      if (!data) return;
+
+      if (data.viewerConnected) {
+        metaViewer.innerText = "Connected";
+        metaViewer.style.color = "#3fb950";
+      }
+
+      // Handle answer from viewer
+      if (data.answer && pc && !pc.currentRemoteDescription) {
+        const desc = new RTCSessionDescription(data.answer);
+        await pc.setRemoteDescription(desc);
+      }
+    });
+
+    // Listen for incoming viewer ICE candidates
+    const viewerCandidatesRef = ref(db, `sessions/${sessionId}/viewerCandidates`);
+    onValue(viewerCandidatesRef, (snapshot) => {
+      snapshot.forEach(child => {
+        const candidate = new RTCIceCandidate(child.val());
+        pc.addIceCandidate(candidate).catch(e => console.error(e));
+      });
+    });
+
+    // Create and write Offer
+    pc.onnegotiationneeded = async () => {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      await update(sessionRef, {
+        offer: { type: offer.type, sdp: offer.sdp },
+        status: "offered"
+      });
+    };
+  }
+
+  function terminateSession() {
+    if (localStream) {
+      localStream.getTracks().forEach(t => t.stop());
+      localStream = null;
+    }
+    if (pc) {
+      pc.close();
+      pc = null;
+    }
+    if (sessionRef) {
+      remove(sessionRef);
+      sessionRef = null;
+    }
+    statusDot.className = "dot";
+    statusLabel.innerText = "STANDBY";
+    metaViewer.innerText = "Disconnected";
+    metaViewer.style.color = "inherit";
+    metaCap.innerText = "Idle";
+    pairSection.style.display = "none";
+    startBtn.style.display = "block";
+    stopBtn.style.display = "none";
+  }
+
+  stopBtn.addEventListener("click", terminateSession);
+  window.addEventListener("beforeunload", terminateSession);
+</script>
+
+</body>
+</html>
