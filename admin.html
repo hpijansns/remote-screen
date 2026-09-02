@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RemoteScreen - Admin Control</title>
+  <style>
+    :root {
+      --bg: #090d13;
+      --panel: #161b22;
+      --border: #30363d;
+      --text: #f0f6fc;
+      --muted: #8b949e;
+      --accent: #1f6feb;
+      --danger: #da3633;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+    header { background: var(--panel); border-bottom: 1px solid var(--border); padding: 14px 24px; display: flex; justify-content: space-between; align-items: center; }
+    .brand { font-size: 1.1rem; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+    .badge { font-size: 0.75rem; background: #21262d; border: 1px solid var(--border); padding: 4px 8px; border-radius: 6px; }
+    main { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 20px; }
+    .viewer-container { width: 100%; max-width: 900px; background: #000; border-radius: 12px; border: 1px solid var(--border); overflow: hidden; position: relative; aspect-ratio: 9/16; max-height: 75vh; display: flex; justify-content: center; align-items: center; }
+    video { width: 100%; height: 100%; object-fit: contain; }
+    .overlay-empty { position: absolute; text-align: center; color: var(--muted); }
+    .controls { width: 100%; max-width: 900px; display: flex; gap: 12px; margin-top: 16px; flex-wrap: wrap; }
+    .input-box { flex: 1; min-width: 200px; display: flex; gap: 8px; }
+    input { flex: 1; padding: 10px 14px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 1rem; text-transform: uppercase; }
+    button { padding: 10px 18px; border-radius: 6px; border: none; font-weight: 600; cursor: pointer; }
+    .btn-connect { background: var(--accent); color: white; }
+    .btn-disconnect { background: var(--danger); color: white; display: none; }
+    .meta-bar { width: 100%; max-width: 900px; margin-top: 12px; font-size: 0.85rem; color: var(--muted); display: flex; gap: 20px; flex-wrap: wrap; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="brand">RemoteScreen <span>Console</span></div>
+  <div class="badge" id="netStatus">OFFLINE</div>
+</header>
+
+<main>
+  <div class="viewer-container" id="videoBox">
+    <div class="overlay-empty" id="emptyNotice">No active stream. Enter a valid pairing code below.</div>
+    <video id="remoteVideo" autoplay playsinline></video>
+  </div>
+
+  <div class="controls">
+    <div class="input-box">
+      <input type="text" id="pairInput" placeholder="ENTER 6-DIGIT CODE" maxlength="6">
+      <button class="btn-connect" id="connectBtn">Connect</button>
+      <button class="btn-disconnect" id="disconnectBtn">Disconnect</button>
+    </div>
+    <button id="fsBtn" style="background: var(--panel); color: var(--text); border: 1px solid var(--border);">Full Screen</button>
+  </div>
+
+  <div class="meta-bar">
+    <div>Target: <strong id="valDevice">--</strong></div>
+    <div>Latency: <strong id="valLatency">--</strong></div>
+    <div>Session Clock: <strong id="valClock">00:00</strong></div>
+  </div>
+</main>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getDatabase, ref, get, set, update, onValue, onDisconnect } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyAQysDZkvCf5m7TZrqck7zxb1EiTpRhFuk",
+    authDomain: "remotescreen-4dc1a.firebaseapp.com",
+    projectId: "remotescreen-4dc1a",
+    storageBucket: "remotescreen-4dc1a.firebasestorage.app",
+    messagingSenderId: "673121898826",
+    appId: "1:673121898826:web:af3f82f486638b61af71b3",
+    databaseURL: "https://remotescreen-4dc1a-default-rtdb.firebaseio.com"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
+
+  let pc = null;
+  let sessionId = null;
+  let timerInterval = null;
+  let startTime = null;
+
+  const pairInput = document.getElementById("pairInput");
+  const connectBtn = document.getElementById("connectBtn");
+  const disconnectBtn = document.getElementById("disconnectBtn");
+  const remoteVideo = document.getElementById("remoteVideo");
+  const emptyNotice = document.getElementById("emptyNotice");
+  const netStatus = document.getElementById("netStatus");
+  const valDevice = document.getElementById("valDevice");
+  const valClock = document.getElementById("valClock");
+
+  async function sha256(str) {
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  connectBtn.addEventListener("click", async () => {
+    const rawCode = pairInput.value.trim().toUpperCase();
+    if (rawCode.length !== 6) return alert("Enter a valid 6-digit code.");
+
+    const hashedInput = await sha256(rawCode);
+    netStatus.innerText = "RESOLVING...";
+
+    const sessionsSnapshot = await get(ref(db, "sessions"));
+    if (!sessionsSnapshot.exists()) {
+      alert("No active sessions located.");
+      netStatus.innerText = "OFFLINE";
+      return;
+    }
+
+    let targetId = null;
+    let targetData = null;
+
+    sessionsSnapshot.forEach(child => {
+      const val = child.val();
+      if (val.pairingCodeHash === hashedInput) {
+        if (Date.now() - val.createdAt < 10 * 60 * 1000) {
+          targetId = child.key;
+          targetData = val;
+        }
+      }
+    });
+
+    if (!targetId) {
+      alert("Invalid or expired pairing code.");
+      netStatus.innerText = "OFFLINE";
+      return;
+    }
+
+    sessionId = targetId;
+    valDevice.innerText = targetData.deviceName || "Android Device";
+    startPeerConnection(targetData);
+  });
+
+  async function startPeerConnection(targetData) {
+    pc = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+    });
+
+    pc.ontrack = (event) => {
+      remoteVideo.srcObject = event.streams[0];
+      emptyNotice.style.display = "none";
+      netStatus.innerText = "LIVE STREAMING";
+      startTimer();
+    };
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        const cRef = ref(db, `sessions/${sessionId}/viewerCandidates/${Date.now()}`);
+        set(cRef, event.candidate.toJSON());
+      }
+    };
+
+    if (!targetData.offer) {
+      alert("Host stream is preparing offer. Retry momentarily.");
+      return;
+    }
+
+    await pc.setRemoteDescription(new RTCSessionDescription(targetData.offer));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+
+    const currentSessionRef = ref(db, `sessions/${sessionId}`);     await update(currentSessionRef, {       answer: { type: answer.type, sdp: answer.sdp },       viewerConnected: true     });      onDisconnect(ref(db, `sessions/${sessionId}/viewerConnected`)).set(false);
+
+    onValue(ref(db, `sessions/${sessionId}/ownerCandidates`), (snapshot) => {       snapshot.forEach(child => {         const cand = new RTCIceCandidate(child.val());         pc.addIceCandidate(cand).catch(err => console.error(err));       });     });      onValue(ref(db, `sessions/${sessionId}/ownerConnected`), (snapshot) => {
+      if (snapshot.val() === false) {
+        alert("Owner stopped sharing.");
+        disconnect();
+      }
+    });
+
+    connectBtn.style.display = "none";
+    disconnectBtn.style.display = "block";
+  }
+
+  function startTimer() {
+    startTime = Date.now();
+    timerInterval = setInterval(() => {
+      const delta = Math.floor((Date.now() - startTime) / 1000);
+      const m = String(Math.floor(delta / 60)).padStart(2, '0');
+      const s = String(delta % 60).padStart(2, '0');
+      valClock.innerText = `${m}:${s}`;
+    }, 1000);
+  }
+
+  function disconnect() {
+    if (pc) pc.close();
+    pc = null;
+    if (timerInterval) clearInterval(timerInterval);
+    remoteVideo.srcObject = null;
+    emptyNotice.style.display = "block";
+    netStatus.innerText = "OFFLINE";
+    connectBtn.style.display = "block";
+    disconnectBtn.style.display = "none";
+    valDevice.innerText = "--";
+    valClock.innerText = "00:00";
+  }
+
+  disconnectBtn.addEventListener("click", disconnect);
+
+  document.getElementById("fsBtn").addEventListener("click", () => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else {
+      document.getElementById("videoBox").requestFullscreen();
+    }
+  });
+</script>
+
+</body>
+</html>
